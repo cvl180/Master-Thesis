@@ -1,0 +1,353 @@
+---
+title: "Cox misspecification"
+output: html_document
+date: "2024-12-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(data.table)
+library(tidyverse)
+library(mgcv)
+library(glmnet)
+library(caret)
+library(reshape2)
+library(survival)
+library(patchwork)
+library(grid)
+library(simsurv)
+library(rstpm2)
+library(coxed)
+library(ggplot2)
+
+```
+
+
+# First simulation study
+
+## AFT true model
+
+```{r}
+
+Niveau_independent_censoring <- function(N, n){
+  
+  significance <- numeric(N)
+  
+  for (i in 1:N){
+    trt <- rbinom(n, 1, 0.5)
+    L1 <- rnorm(n, 0, 1)
+    L2 <- rbinom(n, 1, 0.4)
+    eps <- rnorm(n, 0, 0.5)
+    
+    TT <- exp(0*trt + 1*L1^2 + 0.5*L2 + eps)
+    C <- runif(n, min = 0, max = quantile(TT, 0.99))
+    Tstar <- pmin(TT,C)
+    status <- as.integer(TT <= C)
+    
+    dat <- data.frame(eventtime = Tstar, status = status, trt = trt, L1 = L1, L2 = L2)
+    cox_model <- coxph(Surv(eventtime, status) ~ trt + L1^2 + L2^2, data = dat)
+    p_value <- coef(summary(cox_model))["trt", "Pr(>|z|)"]
+    
+    significance[i] <- if (p_value < 0.05) 1 else 0
+  }
+  return(sum(significance)/N)
+}
+
+
+```
+
+
+```{r}
+
+Niveau_censoring_trt <- function(N, n){
+  
+  significance <- numeric(N)
+  
+  for (i in 1:N){
+    trt <- rbinom(n, 1, 0.5)
+    L1 <- rnorm(n, 0, 1)
+    L2 <- rbinom(n, 1, 0.4)
+    eps <- rnorm(n, 0, 0.5^2)
+    
+    TT <- exp(0*trt + 1*L1^2 + 0.5*L2 + eps)
+    C <- numeric(n)
+    for (j in 1:n) {
+      if (trt[j] == 0) {
+        C[j] <- runif(1, min = 0, max = quantile(TT, 0.55))
+      } else {
+        C[j] <- runif(1, min = 0, max = quantile(TT, 0.99))
+      }
+    }
+    
+    Tstar <- pmin(TT,C)
+    status <- as.integer(TT <= C)
+    
+    dat <- data.frame(eventtime = Tstar, status = status, trt = trt, L1 = L1, L2 = L2)
+    cox_model <- coxph(Surv(eventtime, status) ~ trt + L1^2 + L2^2, data = dat)
+    p_value <- coef(summary(cox_model))["trt", "Pr(>|z|)"]
+    
+    significance[i] <- if (p_value < 0.05) 1 else 0
+  }
+  return(sum(significance)/N)
+}
+
+
+```
+
+
+```{r}
+
+Niveau_censoring_cov <- function(N, n){
+  
+  significance <- numeric(N)
+  
+  for (i in 1:N){
+    trt <- rbinom(n, 1, 0.5)
+    L1 <- rnorm(n, 0, 1)
+    L2 <- rbinom(n, 1, 0.4)
+    eps <- rnorm(n, 0, 0.5^2)
+    
+    TT <- exp(0*trt + 1*L1^2 + 0.5*L2 + eps)
+    C <- numeric(n)
+    for (j in 1:n) {
+      if (L1[j] < 0) {
+        C[j] <- runif(1, min = 0, max = quantile(TT, 0.95))
+      } else {
+        C[j] <- runif(1, min = 0, max = quantile(TT, 0.6))
+      }
+    }
+    
+    Tstar <- pmin(TT,C)
+    status <- as.integer(TT <= C)
+    
+    dat <- data.frame(eventtime = Tstar, status = status, trt = trt, L1 = L1, L2 = L2)
+    cox_model <- coxph(Surv(eventtime, status) ~ trt + L1^2 + L2^2, data = dat)
+    p_value <- coef(summary(cox_model))["trt", "Pr(>|z|)"]
+    
+    significance[i] <- if (p_value < 0.05) 1 else 0
+  }
+  return(sum(significance)/N)
+}
+
+
+```
+
+## PH as true
+
+```{r}
+
+Niveau_independent_censoring <- function(N, n){
+  
+  significance <- numeric(N)
+  
+  for (i in 1:N){
+    trt <- rbinom(n, 1, 0.5)
+    L1 <- rnorm(n, 0, 1)
+    L2 <- rbinom(n, 1, 0.4)
+    U <- runif(n, min = 0, max = 1)
+    
+    TT <- -log(U)/(1.5*exp(0*trt + log(2)*L1^2-log(5)*L2))
+    
+    C <- runif(n, min = 0, max = quantile(TT, 0.99))
+    Tstar <- pmin(TT,C)
+    status <- as.integer(TT <= C)
+    
+    dat <- data.frame(eventtime = Tstar, status = status, trt = trt, L1 = L1, L2 = L2)
+    cox_model <- coxph(Surv(eventtime, status) ~ trt + L1^2 + L2^2, data = dat)
+    p_value <- coef(summary(cox_model))["trt", "Pr(>|z|)"]
+    
+    significance[i] <- if (p_value < 0.05) 1 else 0
+  }
+  return(sum(significance)/N)
+}
+
+
+```
+
+
+```{r}
+
+Niveau_censoring_cov <- function(N, n){
+  
+  significance <- numeric(N)
+  
+  for (i in 1:N){
+    trt <- rbinom(n, 1, 0.5)
+    L1 <- rnorm(n, 0, 1)
+    L2 <- rbinom(n, 1, 0.4)
+    U <- runif(n, min = 0, max = 1)
+    
+    TT <- -log(U)/(1.5*exp(0*trt + log(2)*L1^2-log(5)*L2))
+    
+    C <- numeric(n)
+    for (j in 1:n) {
+      if (L1[j] < 0) {
+        C[j] <- runif(1, min = 0, max = quantile(TT, 0.95))
+      } else {
+        C[j] <- runif(1, min = 0, max = quantile(TT, 0.6))
+      }
+    }
+    
+    Tstar <- pmin(TT,C)
+    status <- as.integer(TT <= C)
+    
+    dat <- data.frame(eventtime = Tstar, status = status, trt = trt, L1 = L1, L2 = L2)
+    cox_model <- coxph(Surv(eventtime, status) ~ trt + L1 + L2^2, data = dat)
+    p_value <- coef(summary(cox_model))["trt", "Pr(>|z|)"]
+    
+    significance[i] <- if (p_value < 0.05) 1 else 0
+  }
+  return(sum(significance)/N)
+}
+
+
+```
+
+
+```{r}
+
+Niveau_censoring_trt <- function(N, n){
+  
+  significance <- numeric(N)
+  
+  for (i in 1:N){
+    trt <- rbinom(n, 1, 0.5)
+    L1 <- rnorm(n, 0, 1)
+    L2 <- rbinom(n, 1, 0.4)
+    U <- runif(n, min = 0, max = 1)
+    
+    TT <- -log(U)/(1.5*exp(0*trt + log(2)*L1^2-log(5)*L2))
+    
+    C <- numeric(n)
+    for (j in 1:n) {
+      if (trt[j] == 0) {
+        C[j] <- runif(1, min = 0, max = quantile(TT, 0.55))
+      } else {
+        C[j] <- runif(1, min = 0, max = quantile(TT, 0.99))
+      }
+    }
+    
+    Tstar <- pmin(TT,C)
+    status <- as.integer(TT <= C)
+    
+    dat <- data.frame(eventtime = Tstar, status = status, trt = trt, L1 = L1, L2 = L2)
+    cox_model <- coxph(Surv(eventtime, status) ~ trt + L1^2 + L2^2, data = dat)
+    p_value <- coef(summary(cox_model))["trt", "Pr(>|z|)"]
+    
+    significance[i] <- if (p_value < 0.05) 1 else 0
+  }
+  return(sum(significance)/N)
+}
+
+```
+
+
+
+
+# Second simulation study
+
+```{r}
+
+sim_data <- function(N, n, y, gamma0, gamma1){
+  
+  coefs <- numeric(N)
+  for (i in 1:N){
+    trt <- rbinom(n, 1, 0.5)
+    U <- runif(n, min = 0, max = 1)
+  
+    TT <- numeric(n)
+    C <- numeric(n)
+      for (j in 1:n) {
+        if (trt[j] == 0) {
+          TT[j] <- -log(U[j])
+          C[j] <- rexp(1, rate = gamma0)
+        } else {
+          TT[j] <- (-log(U[j]))^(1/y)
+          C[j] <- rexp(1, rate = gamma1)
+        }
+      }
+
+    Tstar <- pmin(TT, C)
+    status <- as.integer(TT <= C)
+    dat <- data.frame(trt = trt, eventtime = Tstar, status = status)
+  
+    cox_model <- coxph(Surv(eventtime, status) ~ trt, data = dat)
+    coefs[i] <- coef(summary(cox_model))["trt", "coef"]
+  }
+
+  return(mean(coefs))
+}
+
+```
+
+```{r}
+
+
+run_simulations <- function(N, n) {
+  ys <- seq(1, 2.5, by = 0.01)
+  gamma_values <- c(0.3, 1.2, 2.3)
+  results <- list()
+  
+  for (gamma0 in gamma_values) {
+    for (gamma1 in gamma_values) {
+      coefs <- numeric(length(ys))
+      for (i in seq_along(ys)) {
+        coefs[i] <- sim_data(N, n, ys[i], gamma0, gamma1)
+      }
+      results[[paste("Gamma0:", gamma0, "Gamma1:", gamma1)]] <- coefs
+    }
+  }
+  return(list(ys = ys, results = results))
+}
+
+
+```
+
+
+
+
+## Plotting
+```{r}
+
+plot_results <- function(simulation_results) {
+  plot_data <- data.frame()
+  ys <- simulation_results$ys
+  results <- simulation_results$results
+
+  id <- 0
+  for (name in names(results)) {
+    gamma_info <- strsplit(name, " ")[[1]]
+    gamma0 <- gamma_info[2]
+    gamma1 <- gamma_info[4]
+    id <- id + 1
+    plot_data <- rbind(plot_data, data.frame(y = ys, coef = results[[name]], 
+                                             Gamma0 = gamma0, Gamma1 = gamma1,
+                                             ID = paste("(",gamma0, ",", gamma1,")")))
+  }
+  
+  gg <- ggplot(plot_data, aes(x = y, y = coef, color = ID, group = ID)) +
+    geom_smooth(method = "loess", se = FALSE, aes(group = ID)) +
+    labs(
+      x = expression(paste(" ", italic(y), " ")),
+      y = expression(hat(beta))
+    ) +
+    theme_minimal() +
+    scale_color_discrete(name = "Gamma Combinations") +
+    theme(
+      legend.position = c(0.06, 0.06),
+      legend.justification = c(0, 0), 
+      legend.background = element_rect(fill = "white", color = "black", size = 0.5),
+      legend.text = element_text(size = 8),         
+      legend.title = element_text(size = 9),       
+      legend.key.size = unit(0.5, "cm"),          
+      legend.spacing.y = unit(0.3, "cm")
+    ) +
+    guides(color = guide_legend(title = expression(paste("( ", gamma[0], " , ", gamma[1], " )"))))
+  
+  print(gg)
+}
+
+```
+
